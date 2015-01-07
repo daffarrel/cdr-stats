@@ -195,7 +195,9 @@ def import_cdr_asterisk(shell=False):
                 country_id = destination_data['country_id']
 
             #Option to get the direction from user_field
-            direction = "unknown"
+            direction = "inbound"
+            if len(callerid_number) == 4:
+                direction = "outbound"
 
             # Prepare global CDR
             cdr_record = {
