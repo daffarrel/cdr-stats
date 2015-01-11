@@ -169,9 +169,21 @@ func_prepare_system_common(){
 
     case $DIST in
         'DEBIAN')
+            apt-get update
+
+            export LANGUAGE=en_US.UTF-8
+            export LANG=en_US.UTF-8
+            export LC_ALL=en_US.UTF-8
+            locale-gen en_US.UTF-8
+            dpkg-reconfigure locales
+            apt-get -y install --reinstall language-pack-en
+
+            apt-get -y install postgresql postgresql-contrib
+            pg_createcluster 9.1 main --start
+
             apt-get -y install python-setuptools python-dev build-essential libevent-dev python-pip
             #We need both Postgresql and Mysql for the Connectors
-            apt-get -y install postgresql-client-9.1 libmysqlclient-dev mysql-client-core-5.5
+            apt-get -y install libmysqlclient-dev mysql-client-core-5.5
             apt-get -y install git-core mercurial gawk
             #for audiofile convertion
             apt-get -y install libsox-fmt-mp3 libsox-fmt-all mpg321 ffmpeg
@@ -354,7 +366,7 @@ func_install_source(){
 
     case $INSTALL_MODE in
         'CLONE')
-            git clone git://github.com/Star2Billing/cdr-stats.git
+            git clone -b $BRANCH git://github.com/Star2Billing/cdr-stats.git
 
             #Install Develop / Master
             if echo $BRANCH | grep -i "^develop" > /dev/null ; then
@@ -388,7 +400,7 @@ func_install_pip_deps(){
     echo "Install Django requirements..."
     for line in $(cat /usr/src/cdr-stats/install/requirements/django-requirements.txt | grep -v \#)
     do
-        pip install $line
+        pip install $line --allow-all-external --allow-unverified django-admin-tools
     done
 
     #Check Python dependencies
@@ -522,15 +534,12 @@ func_configure_selinux(){
                 #add HTTP port
                 iptables -I INPUT 2 -p tcp -m state --state NEW -m tcp --dport $HTTP_PORT -j ACCEPT
                 iptables -I INPUT 3 -p tcp -m state --state NEW -m tcp --dport 80 -j ACCEPT
-                #Add port for websocket
-                iptables -I INPUT 4 -p tcp -m state --state NEW -m tcp --dport 9000 -j ACCEPT
                 service iptables save
 
                 #Selinux to allow apache to access this directory
                 chcon -Rv --type=httpd_sys_content_t /usr/share/virtualenvs/cdr-stats/
                 chcon -Rv --type=httpd_sys_content_t $INSTALL_DIR/usermedia
                 semanage port -a -t http_port_t -p tcp $HTTP_PORT
-                semanage port -a -t http_port_t -p tcp 9000
                 #Allowing Apache to access Redis and MongoDB port
                 semanage port -a -t http_port_t -p tcp 6379
                 semanage port -a -t http_port_t -p tcp 27017
@@ -580,27 +589,6 @@ func_configure_http_server(){
 
     #Restart HTTP Server
     service $APACHE_SERVICE restart
-}
-
-#Install SocketIO Service
-func_install_socketio(){
-    #add service for socketio server
-    echo "Add service for socketio server..."
-    cp /usr/src/cdr-stats/install/cdr-stats-socketio /etc/init.d/cdr-stats-socketio
-    chmod +x /etc/init.d/cdr-stats-socketio
-    case $DIST in
-        'DEBIAN')
-            #Add SocketIO to Service
-            cd /etc/init.d; update-rc.d cdr-stats-socketio defaults 99
-            /etc/init.d/cdr-stats-socketio start
-        ;;
-        'CENTOS')
-            #Add SocketIO to Service
-            chkconfig --add cdr-stats-socketio
-            chkconfig --level 2345 cdr-stats-socketio on
-            /etc/init.d/cdr-stats-socketio start
-        ;;
-    esac
 }
 
 #Install Django Newfies
@@ -669,10 +657,6 @@ func_install_frontend(){
 
     #Configure Apache
     func_configure_http_server
-
-    #Install SocketIO Service
-    func_install_socketio
-
 
     echo ""
     echo "**************************************************************"
@@ -768,7 +752,7 @@ func_install_backend() {
 func_install_standalone_backend(){
 
     echo ""
-    echo "This will install the CDR-backend without configuring Apache, SocketIO Services, etc..."
+    echo "This will install the CDR-backend without configuring Apache, etc..."
     read TEMP
 
     func_prepare_system_common
